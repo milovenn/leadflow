@@ -1,0 +1,1438 @@
+{
+  "name": "LeadFlow - Website Leads to Google Sheets + Discord",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "# LeadFlow – Setup\n\n1. Replace `REPLACE_WITH_GOOGLE_SHEET_ID` in all Google Sheets nodes.\n2. Create tabs `Leads` and `Logs` with the headers listed below.\n3. Select your Google Sheets OAuth2 credential in every Sheets node.\n4. Select/create separate Discord webhook credentials for `#priority` and `#leads`.\n5. Test with the Webhook Test URL, then publish the workflow for the Production URL.\n\n**Leads headers**\n`receivedAt, leadId, name, email, phone, company, source, budget, urgency, message`\n\n**Logs headers**\n`timestamp, leadId, email, status, detail, priority`\n\n**GitHub note:** This exported workflow contains no credential IDs, webhook IDs, instance ID, workflow ID, or real Google Sheet ID.",
+        "height": 460,
+        "width": 520,
+        "color": 5
+      },
+      "id": "10f5d57b-575f-4079-8760-a7b5cbc1b1aa",
+      "name": "Setup",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2256,
+        384
+      ]
+    },
+    {
+      "parameters": {
+        "content": "# Expected POST body\n\n```json\n{\n  \"name\": \"Max Mustermann\",\n  \"email\": \"max@example.com\",\n  \"phone\": \"+49 170 1234567\",\n  \"company\": \"Muster GmbH\",\n  \"source\": \"website\",\n  \"budget\": 7500,\n  \"urgency\": \"high\",\n  \"message\": \"We need a proposal and a call this week.\"\n}\n```\n\nRequired: `name`, `email`, `message`.",
+        "height": 330,
+        "width": 520,
+        "color": 6
+      },
+      "id": "f0a47264-62dd-4f18-85be-c78f3025f622",
+      "name": "Input Contract",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2256,
+        928
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "leadflow",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "1c004b45-74c5-4507-96b1-c52261ed1537",
+      "name": "Webhook - New Lead",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        2880,
+        912
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\nconst raw = input.body ?? input;\n\nconst clean = (value) => String(value ?? '')\n  .trim()\n  .replace(/\\s+/g, ' ');\n\nconst email = clean(raw.email).toLowerCase();\nconst name = clean(raw.name);\nconst message = clean(raw.message);\nconst company = clean(raw.company);\nconst source = clean(raw.source) || 'website';\nconst urgency = clean(raw.urgency).toLowerCase();\n\nlet phone = clean(raw.phone);\nphone = phone ? phone.replace(/[^\\d+]/g, '') : '';\n\nconst parseBudget = (value) => {\n  if (value === null || value === undefined || value === '') return null;\n  if (typeof value === 'number' && Number.isFinite(value)) return value;\n\n  let s = String(value).trim().replace(/[^\\d,.-]/g, '');\n  if (!s) return null;\n\n  if (s.includes(',') && s.includes('.')) {\n    if (s.lastIndexOf(',') > s.lastIndexOf('.')) {\n      s = s.replace(/\\./g, '').replace(',', '.');\n    } else {\n      s = s.replace(/,/g, '');\n    }\n  } else if (s.includes(',')) {\n    s = s.replace(',', '.');\n  }\n\n  const n = Number(s);\n  return Number.isFinite(n) ? n : null;\n};\n\nconst budget = parseBudget(raw.budget);\nconst errors = [];\n\nif (!name) errors.push('name is required');\nif (!email) {\n  errors.push('email is required');\n} else if (!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email)) {\n  errors.push('email is invalid');\n}\nif (!message) errors.push('message is required');\nif (message.length > 5000) errors.push('message must be <= 5000 characters');\nif (budget !== null && budget < 0) errors.push('budget must be >= 0');\n\nconst receivedAt = new Date().toISOString();\nconst leadId = `lead_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;\n\nreturn [{\n  json: {\n    isValid: errors.length === 0,\n    validationErrors: errors,\n    receivedAt,\n    leadId,\n    name,\n    email,\n    phone,\n    company,\n    source,\n    budget,\n    urgency,\n    message\n  }\n}];"
+      },
+      "id": "ebb3937b-a3b0-4009-bcc4-e433e6737896",
+      "name": "Validate + Normalize",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3120,
+        912
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "22db8231-d458-4abb-95cc-100ede8c8c2e",
+              "leftValue": "={{ $json.isValid }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "1ae99362-e67b-4548-b96e-2e72f9dc57e1",
+      "name": "Valid Lead?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3360,
+        912
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const lead = $('Validate + Normalize').first().json;\nreturn [{\n  json: {\n    timestamp: new Date().toISOString(),\n    leadId: lead.leadId,\n    email: lead.email,\n    status: 'INVALID',\n    detail: lead.validationErrors.join('; '),\n    priority: ''\n  }\n}];"
+      },
+      "id": "35b8122c-3058-4f72-a1dc-1f30531576e8",
+      "name": "Prepare Invalid Log",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3584,
+        1152
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Logs",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{ $json.timestamp }}",
+            "leadId": "={{ $json.leadId }}",
+            "email": "={{ $json.email }}",
+            "status": "={{ $json.status }}",
+            "detail": "={{ $json.detail }}",
+            "priority": "={{ $json.priority }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "timestamp",
+              "displayName": "timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "leadId",
+              "displayName": "leadId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "email",
+              "displayName": "email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "detail",
+              "displayName": "detail",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "priority",
+              "displayName": "priority",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "7a2018fd-d325-45e2-8a40-3f67c9b1b3fc",
+      "name": "Log Invalid",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        3824,
+        1152
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: false, status: 'invalid', leadId: $('Validate + Normalize').first().json.leadId, errors: $('Validate + Normalize').first().json.validationErrors }) }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "9727ebeb-6272-4c15-a88e-fe48cfe30700",
+      "name": "Respond 400 Invalid",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        4064,
+        1152
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Leads",
+          "mode": "name"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "email",
+              "lookupValue": "={{ $('Validate + Normalize').first().json.email }}"
+            }
+          ]
+        },
+        "options": {
+          "returnFirstMatch": true
+        }
+      },
+      "id": "8bbaee31-c013-4dd7-a1c0-2618f96cef93",
+      "name": "Find Duplicate by Email",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        3584,
+        816
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "alwaysOutputData": true,
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "97be2300-d1b6-40b5-9d76-cbc57fe1be66",
+              "leftValue": "={{ $json.error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "613c7ad3-ae71-4eeb-a7b7-ab7903950de4",
+      "name": "Lookup Error?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3824,
+        816
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: false, status: 'error', stage: 'duplicate_check', message: $json.error || 'Google Sheets lookup failed' }) }}",
+        "options": {
+          "responseCode": 500
+        }
+      },
+      "id": "a2b5dc6b-0c1b-4569-aff0-8deca64a4ccb",
+      "name": "Respond 500 Lookup Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        4064,
+        656
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "3891e5a2-79e1-4c6d-8c91-b874a654b04e",
+              "leftValue": "={{ $json.email }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "5683e2d6-8fb4-4607-829a-ababbbc65f4e",
+      "name": "Duplicate?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        4064,
+        848
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const lead = $('Validate + Normalize').first().json;\nreturn [{\n  json: {\n    timestamp: new Date().toISOString(),\n    leadId: lead.leadId,\n    email: lead.email,\n    status: 'DUPLICATE',\n    detail: 'Duplicate email already exists in Leads sheet',\n    priority: ''\n  }\n}];"
+      },
+      "id": "b2c69402-2d38-4ba6-b08a-f7ba51688355",
+      "name": "Prepare Duplicate Log",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4304,
+        1008
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Logs",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{ $json.timestamp }}",
+            "leadId": "={{ $json.leadId }}",
+            "email": "={{ $json.email }}",
+            "status": "={{ $json.status }}",
+            "detail": "={{ $json.detail }}",
+            "priority": "={{ $json.priority }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "timestamp",
+              "displayName": "timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "leadId",
+              "displayName": "leadId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "email",
+              "displayName": "email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "detail",
+              "displayName": "detail",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "priority",
+              "displayName": "priority",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "dfbc7d66-fdb0-4f87-9e2a-641be941e9bb",
+      "name": "Log Duplicate",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        4544,
+        1008
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: false, status: 'duplicate', leadId: $('Validate + Normalize').first().json.leadId, email: $('Validate + Normalize').first().json.email }) }}",
+        "options": {
+          "responseCode": 409
+        }
+      },
+      "id": "bc73c291-38b9-45d7-943e-a62a076a949e",
+      "name": "Respond 409 Duplicate",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        4784,
+        1008
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const lead = $('Validate + Normalize').first().json;\n\nreturn [{\n  json: {\n    receivedAt: lead.receivedAt,\n    leadId: lead.leadId,\n    name: lead.name,\n    email: lead.email,\n    phone: lead.phone,\n    company: lead.company,\n    source: lead.source,\n    budget: lead.budget ?? '',\n    urgency: lead.urgency,\n    message: lead.message\n  }\n}];"
+      },
+      "id": "02329069-8794-4ee5-9d6b-dde89b7cc529",
+      "name": "Prepare Lead Row",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4304,
+        816
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Leads",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "receivedAt": "={{ $json.receivedAt }}",
+            "leadId": "={{ $json.leadId }}",
+            "name": "={{ $json.name }}",
+            "email": "={{ $json.email }}",
+            "phone": "={{ $json.phone }}",
+            "company": "={{ $json.company }}",
+            "source": "={{ $json.source }}",
+            "budget": "={{ $json.budget }}",
+            "urgency": "={{ $json.urgency }}",
+            "message": "={{ $json.message }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "receivedAt",
+              "displayName": "receivedAt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "leadId",
+              "displayName": "leadId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "name",
+              "displayName": "name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "email",
+              "displayName": "email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "company",
+              "displayName": "company",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "source",
+              "displayName": "source",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "budget",
+              "displayName": "budget",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "urgency",
+              "displayName": "urgency",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "message",
+              "displayName": "message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "b068e139-7542-4477-b4e2-b6b5ba4402d1",
+      "name": "Store Lead",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        4544,
+        816
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "77c2c57e-d75d-4385-befb-e3d92221ff01",
+              "leftValue": "={{ $json.error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "7a061cca-7a80-4501-a434-867a3d3d2697",
+      "name": "Store Error?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        4784,
+        816
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: false, status: 'error', stage: 'store_lead', leadId: $('Validate + Normalize').first().json.leadId, message: $json.error || 'Google Sheets append failed' }) }}",
+        "options": {
+          "responseCode": 500
+        }
+      },
+      "id": "42111208-20ea-4ea7-81cb-249175ae1541",
+      "name": "Respond 500 Store Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        5024,
+        656
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const lead = $('Validate + Normalize').first().json;\n\nlet score = 0;\nconst reasons = [];\n\nconst highUrgency = ['high', 'urgent', 'asap', 'sofort', 'dringend'];\nif (highUrgency.includes(lead.urgency)) {\n  score += 3;\n  reasons.push(`urgency=${lead.urgency}`);\n}\n\nif (typeof lead.budget === 'number' && lead.budget >= 5000) {\n  score += 2;\n  reasons.push(`budget>=5000 (${lead.budget})`);\n}\n\nconst text = `${lead.message} ${lead.company}`.toLowerCase();\nconst highIntentTerms = [\n  'angebot', 'proposal', 'demo', 'termin', 'meeting',\n  'call', 'diese woche', 'this week', 'urgent', 'asap'\n];\n\nconst matchedTerms = highIntentTerms.filter(term => text.includes(term));\nif (matchedTerms.length > 0) {\n  score += 2;\n  reasons.push(`high-intent=${matchedTerms.join(',')}`);\n}\n\nconst priority = score >= 3 ? 'HIGH' : 'NORMAL';\nconst routedTo = priority === 'HIGH' ? '#priority' : '#leads';\n\nconst discordMessage = [\n  priority === 'HIGH' ? '**HIGH PRIORITY LEAD**' : '**New Lead**',\n  `ID: ${lead.leadId}`,\n  `Name: ${lead.name}`,\n  `Email: ${lead.email}`,\n  lead.phone ? `Phone: ${lead.phone}` : null,\n  lead.company ? `Company: ${lead.company}` : null,\n  `Source: ${lead.source}`,\n  lead.budget !== null ? `Budget: ${lead.budget}` : null,\n  lead.urgency ? `Urgency: ${lead.urgency}` : null,\n  `Priority score: ${score}`,\n  reasons.length ? `Reasons: ${reasons.join(' | ')}` : null,\n  '',\n  `Message: ${lead.message}`\n].filter(Boolean).join('\\n');\n\nreturn [{\n  json: {\n    ...lead,\n    priority,\n    priorityScore: score,\n    priorityReasons: reasons,\n    routedTo,\n    discordMessage\n  }\n}];"
+      },
+      "id": "1c476946-c4fc-42ea-aec8-98dab6a62621",
+      "name": "Determine Priority",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5024,
+        848
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "85123a10-696c-44ec-aee8-3a75108de5cc",
+              "leftValue": "={{ $json.priority }}",
+              "rightValue": "HIGH",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "7e29d5e7-cdfc-48cb-9ace-e5ad043ba25a",
+      "name": "HIGH Priority?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        5264,
+        848
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "webhook",
+        "content": "={{ $('Determine Priority').first().json.discordMessage }}",
+        "options": {}
+      },
+      "id": "1f98eee4-ca13-4a25-8db5-04e511d3597b",
+      "name": "Discord #priority",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [
+        5504,
+        736
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "authentication": "webhook",
+        "content": "={{ $('Determine Priority').first().json.discordMessage }}",
+        "options": {}
+      },
+      "id": "32bdce34-1086-478c-b6e8-a70b22af376d",
+      "name": "Discord #leads",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [
+        5504,
+        976
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "33471a11-91ae-4d40-99f9-39261ed45aa2",
+              "leftValue": "={{ $json.error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "435ef8e4-2918-41e5-a723-8398fd3b5135",
+      "name": "Priority Discord Error?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        5744,
+        736
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "2cafcfa9-cda1-469d-b071-400addf2b9e4",
+              "leftValue": "={{ $json.error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "acb6fec8-310a-4d59-9fb0-6c0847820eae",
+      "name": "Leads Discord Error?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        5744,
+        976
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const lead = $('Determine Priority').first().json;\n\nreturn [{\n  json: {\n    timestamp: new Date().toISOString(),\n    leadId: lead.leadId,\n    email: lead.email,\n    status: 'ROUTED',\n    detail: `Sent to ${lead.routedTo}; score=${lead.priorityScore}; reasons=${lead.priorityReasons.join(' | ') || 'none'}`,\n    priority: lead.priority\n  }\n}];"
+      },
+      "id": "ac028cd6-2240-474b-9d0e-148e373b1cb5",
+      "name": "Prepare Success Log",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5984,
+        864
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Logs",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{ $json.timestamp }}",
+            "leadId": "={{ $json.leadId }}",
+            "email": "={{ $json.email }}",
+            "status": "={{ $json.status }}",
+            "detail": "={{ $json.detail }}",
+            "priority": "={{ $json.priority }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "timestamp",
+              "displayName": "timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "leadId",
+              "displayName": "leadId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "email",
+              "displayName": "email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "detail",
+              "displayName": "detail",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "priority",
+              "displayName": "priority",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "6d0fbb21-1cb6-404a-a7bd-221a9b86f1d9",
+      "name": "Log Success",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        6224,
+        864
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: true, status: 'created', leadId: $('Determine Priority').first().json.leadId, priority: $('Determine Priority').first().json.priority, routedTo: $('Determine Priority').first().json.routedTo }) }}",
+        "options": {
+          "responseCode": 201
+        }
+      },
+      "id": "dbd93561-25f6-4fb0-9067-a6c6929004ad",
+      "name": "Respond 201 Created",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        6464,
+        864
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const lead = $('Determine Priority').first().json;\nreturn [{\n  json: {\n    timestamp: new Date().toISOString(),\n    leadId: lead.leadId,\n    email: lead.email,\n    status: 'DISCORD_ERROR',\n    detail: String($json.error ?? 'Discord notification failed'),\n    priority: lead.priority\n  }\n}];"
+      },
+      "id": "287debe8-a931-446f-866b-293083f3af9c",
+      "name": "Prepare Discord Error Log",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5984,
+        1088
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Logs",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{ $json.timestamp }}",
+            "leadId": "={{ $json.leadId }}",
+            "email": "={{ $json.email }}",
+            "status": "={{ $json.status }}",
+            "detail": "={{ $json.detail }}",
+            "priority": "={{ $json.priority }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "timestamp",
+              "displayName": "timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "leadId",
+              "displayName": "leadId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "email",
+              "displayName": "email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "detail",
+              "displayName": "detail",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "priority",
+              "displayName": "priority",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "6d5d2dec-fe30-4d3e-905a-c4f09e1494a0",
+      "name": "Log Discord Error",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        6224,
+        1088
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: false, status: 'error', stage: 'discord', leadId: $('Determine Priority').first().json.leadId, priority: $('Determine Priority').first().json.priority }) }}",
+        "options": {
+          "responseCode": 502
+        }
+      },
+      "id": "dbc1c88c-b91a-4252-93f7-e1013673e589",
+      "name": "Respond 502 Discord Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        6464,
+        1088
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook - New Lead": {
+      "main": [
+        [
+          {
+            "node": "Validate + Normalize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate + Normalize": {
+      "main": [
+        [
+          {
+            "node": "Valid Lead?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Valid Lead?": {
+      "main": [
+        [
+          {
+            "node": "Find Duplicate by Email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Invalid Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Invalid Log": {
+      "main": [
+        [
+          {
+            "node": "Log Invalid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Invalid": {
+      "main": [
+        [
+          {
+            "node": "Respond 400 Invalid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Duplicate by Email": {
+      "main": [
+        [
+          {
+            "node": "Lookup Error?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lookup Error?": {
+      "main": [
+        [
+          {
+            "node": "Respond 500 Lookup Error",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Duplicate?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Duplicate?": {
+      "main": [
+        [
+          {
+            "node": "Prepare Duplicate Log",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Lead Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Duplicate Log": {
+      "main": [
+        [
+          {
+            "node": "Log Duplicate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Duplicate": {
+      "main": [
+        [
+          {
+            "node": "Respond 409 Duplicate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Lead Row": {
+      "main": [
+        [
+          {
+            "node": "Store Lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store Lead": {
+      "main": [
+        [
+          {
+            "node": "Store Error?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store Error?": {
+      "main": [
+        [
+          {
+            "node": "Respond 500 Store Error",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Determine Priority",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Determine Priority": {
+      "main": [
+        [
+          {
+            "node": "HIGH Priority?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HIGH Priority?": {
+      "main": [
+        [
+          {
+            "node": "Discord #priority",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Discord #leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Discord #priority": {
+      "main": [
+        [
+          {
+            "node": "Priority Discord Error?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Discord #leads": {
+      "main": [
+        [
+          {
+            "node": "Leads Discord Error?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Priority Discord Error?": {
+      "main": [
+        [
+          {
+            "node": "Prepare Discord Error Log",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Success Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leads Discord Error?": {
+      "main": [
+        [
+          {
+            "node": "Prepare Discord Error Log",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Success Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Success Log": {
+      "main": [
+        [
+          {
+            "node": "Log Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Success": {
+      "main": [
+        [
+          {
+            "node": "Respond 201 Created",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Discord Error Log": {
+      "main": [
+        [
+          {
+            "node": "Log Discord Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Discord Error": {
+      "main": [
+        [
+          {
+            "node": "Respond 502 Discord Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "nodeGroups": [],
+  "tags": []
+}

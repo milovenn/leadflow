@@ -1,0 +1,10 @@
+{
+  "name": "Max Mustermann",
+  "email": "max@example.com",
+  "phone": "+49 170 1234567",
+  "company": "Muster GmbH",
+  "source": "website",
+  "budget": 7500,
+  "urgency": "high",
+  "message": "We need a proposal and a call this week."
+}

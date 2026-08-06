@@ -2,6 +2,8 @@
 
 **Production-style lead intake automation built with n8n, Google Sheets and Discord.**
 
+![LeadFlow n8n Workflow](screenshots/workflow.png)
+
 LeadFlow receives website leads through an n8n webhook, validates and normalizes the payload, detects duplicates, stores valid leads, calculates a simple priority score, routes notifications to Discord, logs execution outcomes, and returns meaningful HTTP status codes.
 
 ## What it does

@@ -1,10 +1,6 @@
 <div align="center">
 
-<img src="./assets/leadflow-banner.svg" alt="LeadFlow banner" width="1200">
-
-# LeadFlow
-
-**Validate website leads with an n8n webhook, store them in Google Sheets, and route alerts to Discord.**
+<h1><img src="./assets/leadflow-banner.svg" alt="LeadFlow. Validate website leads with an n8n webhook, store them in Google Sheets, and route alerts to Discord." width="1200"></h1>
 
 [![MIT License](https://img.shields.io/badge/License-MIT-6366f1?style=for-the-badge&labelColor=18181b)](./LICENSE)
 [![n8n workflow](https://img.shields.io/badge/n8n-Workflow-6366f1?style=for-the-badge&labelColor=18181b&logo=n8n&logoColor=white)](https://docs.n8n.io/build/manage-workflows/export-and-import/)
